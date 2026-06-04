@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SGK · Makeready Checklist</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f12; color: #e8e8f0; font-family: 'DM Mono', 'Courier New', monospace; }
+  input::placeholder, textarea::placeholder { color: #7070a0; }
+  input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #16161c; }
+  ::-webkit-scrollbar-thumb { background: #2a2a36; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+const C = {
+  bg:"#0f0f12", surface:"#16161c", card:"#1c1c24", border:"#2a2a36",
+  accent:"#e8c84a", accentD:"#b89a2a", text:"#e8e8f0", muted:"#9898b0",
+  ok:"#3ecf8e", warn:"#e87d4a", danger:"#e84a4a", label:"#a8a8b8",
+};
+
+const inp = {
+  background:C.surface, border:`1px solid ${C.border}`, borderRadius:6,
+  color:C.text, padding:"8px 12px", width:"100%", fontSize:13,
+  outline:"none", fontFamily:"inherit",
+};
+
+const today = () => { const d=new Date(); return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}`; };
+
+function Section({ title, children }) {
+  return (
+    <div style={{marginBottom:28}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:3,color:C.accent,textTransform:"uppercase",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{flex:1,height:1,background:`linear-gradient(90deg,${C.accent}55,transparent)`}}/>
+        {title}
+        <span style={{flex:1,height:1,background:`linear-gradient(270deg,${C.accent}55,transparent)`}}/>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, children, half, third }) {
+  const w = half ? "calc(50% - 6px)" : third ? "calc(33.3% - 8px)" : "100%";
+  return (
+    <div style={{marginBottom:12, width:w}}>
+      <label style={{display:"block",fontSize:11,color:C.muted,marginBottom:5,letterSpacing:1}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Inp({ value, onChange, placeholder }) {
+  return <input type="text" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={inp}/>;
+}
+function Txa({ value, onChange, placeholder, rows=3 }) {
+  return <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{...inp, resize:"vertical"}}/>;
+}
+function Sel({ value, onChange, options }) {
+  return (
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{...inp, cursor:"pointer"}}>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+// Tri-state check: null = boş, true = ok, false = nok
+function TriCheck({ label, value, onChange, note, onNoteChange, showNote }) {
+  return (
+    <div style={{marginBottom:10, background:C.surface, borderRadius:8, padding:"10px 14px", border:`1px solid ${value===true ? C.ok+"66" : value===false ? C.danger+"66" : C.border}`}}>
+      <div style={{display:"flex", alignItems:"center", gap:10}}>
+        <div style={{flex:1, fontSize:13, color:C.text}}>{label}</div>
+        <div style={{display:"flex", gap:6}}>
+          <button onClick={()=>onChange(value===true ? null : true)}
+            style={{padding:"4px 12px", borderRadius:20, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:600,
+              background: value===true ? C.ok : C.surface,
+              color: value===true ? "#000" : C.muted,
+              outline: value===true ? "none" : `1px solid ${C.border}`}}>✓ OK</button>
+          <button onClick={()=>onChange(value===false ? null : false)}
+            style={{padding:"4px 12px", borderRadius:20, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:600,
+              background: value===false ? C.danger : C.surface,
+              color: value===false ? "#fff" : C.muted,
+              outline: value===false ? "none" : `1px solid ${C.border}`}}>✗ NOK</button>
+          {showNote !== false && (
+            <button onClick={()=>onNoteChange(note === undefined ? "" : undefined)}
+              style={{padding:"4px 10px", borderRadius:20, border:`1px solid ${C.border}`, cursor:"pointer", fontFamily:"inherit", fontSize:12, background:C.surface, color:C.muted}}>
+              {note !== undefined ? "▲" : "not"}
+            </button>
+          )}
+        </div>
+      </div>
+      {note !== undefined && (
+        <textarea value={note} onChange={e=>onNoteChange(e.target.value)} placeholder="Not ekle..." rows={2}
+          style={{...inp, marginTop:8, fontSize:12, resize:"none"}}/>
+      )}
+    </div>
+  );
+}
+
+// Spot renk satırı
+function SpotColorRow({ color, onChange, onRemove }) {
+  return (
+    <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:8, background:C.surface, borderRadius:8, padding:"8px 12px", border:`1px solid ${C.border}`}}>
+      <input type="color" value={color.hex||"#FF0000"} onChange={e=>onChange({...color, hex:e.target.value})}
+        style={{width:28, height:28, border:"none", background:"none", cursor:"pointer", padding:0, borderRadius:4}}/>
+      <input type="text" value={color.name||""} onChange={e=>onChange({...color, name:e.target.value})} placeholder="Renk adı"
+        style={{...inp, width:110, fontSize:12, padding:"5px 8px"}}/>
+      <input type="text" value={color.pantone||""} onChange={e=>onChange({...color, pantone:e.target.value})} placeholder="Pantone kodu"
+        style={{...inp, width:120, fontSize:12, padding:"5px 8px"}}/>
+      <input type="text" value={color.lab||""} onChange={e=>onChange({...color, lab:e.target.value})} placeholder="L* a* b*"
+        style={{...inp, width:110, fontSize:12, padding:"5px 8px"}}/>
+      <input type="text" value={color.tolerance||""} onChange={e=>onChange({...color, tolerance:e.target.value})} placeholder="Tolerans ΔE"
+        style={{...inp, width:90, fontSize:12, padding:"5px 8px"}}/>
+      <button onClick={onRemove} style={{background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:16, padding:"0 4px"}}>×</button>
+    </div>
+  );
+}
+
+// Önceki baskı notu
+function PrevIssueRow({ issue, onChange, onRemove }) {
+  return (
+    <div style={{display:"flex", gap:8, alignItems:"flex-start", marginBottom:8}}>
+      <textarea value={issue.note||""} onChange={e=>onChange({...issue, note:e.target.value})} placeholder="Önceki baskıda tespit edilen sorun..."
+        rows={2} style={{...inp, flex:1, fontSize:12, resize:"none"}}/>
+      <div style={{display:"flex", flexDirection:"column", gap:6}}>
+        <div style={{fontSize:10, color:C.muted, textAlign:"center"}}>İletildi mi?</div>
+        <div style={{display:"flex", gap:4}}>
+          <button onClick={()=>onChange({...issue, notified:true})}
+            style={{padding:"3px 8px", borderRadius:20, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11,
+              background: issue.notified===true ? C.ok : C.surface, color: issue.notified===true ? "#000" : C.muted,
+              outline: issue.notified===true ? "none" : `1px solid ${C.border}`}}>✓</button>
+          <button onClick={()=>onChange({...issue, notified:false})}
+            style={{padding:"3px 8px", borderRadius:20, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11,
+              background: issue.notified===false ? C.danger : C.surface, color: issue.notified===false ? "#fff" : C.muted,
+              outline: issue.notified===false ? "none" : `1px solid ${C.border}`}}>✗</button>
+        </div>
+      </div>
+      <button onClick={onRemove} style={{background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:16, padding:"2px 4px"}}>×</button>
+    </div>
+  );
+}
+
+const PRINT_TECHNIQUES = ["Flexo","Rotogravure","Offset","Dijital","Diğer"];
+const PROOF_STATUS = ["Var — onaylı","Var — onaysız","Yok"];
+
+function App() {
+  // 1. İş bilgileri
+  const [job, setJob] = useState({
+    date: today(), brand:"", variant:"", jobNo:"", technique:"Flexo",
+    substrate:"", supplier:"", sgkAttendee:"", notes:""
+  });
+  const j = k => v => setJob(p=>({...p,[k]:v}));
+
+  // 2. İş geçmişi
+  const [history, setHistory] = useState({
+    hasPrevious: null,
+    refSampleAvailable: null, refSampleNo:"", refSampleDate:"",
+    majorChange: null, majorChangeDesc:"",
+    prevIssues: [],
+  });
+  const h = k => v => setHistory(p=>({...p,[k]:v}));
+  const addPrevIssue = () => setHistory(p=>({...p, prevIssues:[...p.prevIssues, {note:"", notified:null}]}));
+  const updatePrevIssue = (i,v) => setHistory(p=>{ const a=[...p.prevIssues]; a[i]=v; return {...p, prevIssues:a}; });
+  const removePrevIssue = (i) => setHistory(p=>({...p, prevIssues:p.prevIssues.filter((_,idx)=>idx!==i)}));
+
+  // 3. Renk referansları
+  const [colors, setColors] = useState({
+    gmgProfile: null, gmgProfileName:"",
+    spotColors: [],
+  });
+  const c = k => v => setColors(p=>({...p,[k]:v}));
+  const addSpot = () => setColors(p=>({...p, spotColors:[...p.spotColors, {hex:"#FF0000", name:"", pantone:"", lab:"", tolerance:""}]}));
+  const updateSpot = (i,v) => setColors(p=>{ const a=[...p.spotColors]; a[i]=v; return {...p, spotColors:a}; });
+  const removeSpot = (i) => setColors(p=>({...p, spotColors:p.spotColors.filter((_,idx)=>idx!==i)}));
+
+  // 4. Tedarikçi hazırlık
+  const [supplier, setSupplier] = useState({
+    substrateConfirmed: null, substrateNote: undefined,
+    techniqueMatch: null, techniqueNote: undefined,
+    proofSent: null, proofSentNote: undefined,
+    proofStatus: "Var — onaylı",
+  });
+  const su = (k,v) => setSupplier(p=>({...p,[k]:v}));
+
+  // 5. Müşteri onayları
+  const [client, setClient] = useState({
+    proofApproved: null, proofApprovedNote: undefined,
+    prevIssuesNotified: null, prevIssuesNotifiedNote: undefined,
+  });
+  const cl = (k,v) => setClient(p=>({...p,[k]:v}));
+
+  // 6. Sonuç
+  const [result, setResult] = useState({ decision: null, notes:"" });
+
+  // Tüm checklist OK sayısı
+  const checks = [
+    supplier.substrateConfirmed, supplier.techniqueMatch, supplier.proofSent,
+    client.proofApproved, client.prevIssuesNotified,
+    colors.gmgProfile,
+    history.hasPrevious === false ? true : history.refSampleAvailable,
+  ].filter(v => v !== null && v !== undefined);
+  const okCount = checks.filter(v=>v===true).length;
+  const nokCount = checks.filter(v=>v===false).length;
+  const totalChecks = checks.length;
+
+  const generateExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const ws = {};
+    let r = 0; // current row (0-indexed)
+
+    // ── helpers ──────────────────────────────────────────────────────
+    const cell = (row, col, value, style={}) => {
+      const addr = XLSX.utils.encode_cell({r:row, c:col});
+      ws[addr] = { v: value ?? "", t: typeof value === "number" ? "n" : "s", s: style };
+    };
+
+    // Color palette
+    const XL = {
+      dark:    "FF1A1A24",
+      accent:  "FFE8C84A",
+      accentT: "33E8C84A",
+      sectionBg: "FF1E1E2A",
+      headerBg:  "FF2A2A3A",
+      ok:      "FF2D9E6A",
+      okBg:    "FF1A3D2A",
+      nok:     "FFD94040",
+      nokBg:   "FF3D1A1A",
+      neutral: "FF2A2A3A",
+      white:   "FFE8E8F0",
+      muted:   "FF9898B0",
+      border:  "FF2A2A36",
+    };
+
+    const fnt = (bold=false, sz=11, color=XL.white) => ({ bold, sz, color: { rgb: color }, name: "Calibri" });
+    const fill = (rgb) => ({ patternType:"solid", fgColor:{ rgb } });
+    const aln = (h="left", wrap=false) => ({ horizontal:h, vertical:"center", wrapText:wrap });
+    const brd = (clr=XL.border) => {
+      const s = { style:"thin", color:{ rgb:clr } };
+      return { top:s, bottom:s, left:s, right:s };
+    };
+    const brdB = (clr=XL.accent) => ({ bottom:{ style:"medium", color:{ rgb:clr } } });
+
+    // Merge helper
+    const merges = [];
+    const merge = (rs,re,cs,ce) => merges.push({ s:{r:rs,c:cs}, e:{r:re,c:ce} });
+
+    // Section header (full width cols 0-6)
+    const sectionRow = (title) => {
+      for(let c=0;c<7;c++) cell(r,c,"",{fill:fill(XL.sectionBg), border:brd(XL.sectionBg)});
+      cell(r,0,title,{ font:fnt(true,11,XL.accent), fill:fill(XL.sectionBg), alignment:aln("left"), border:brd(XL.sectionBg) });
+      merge(r,r,0,6);
+      r++;
+    };
+
+    // Label + value row
+    const labelRow = (label, value, statusVal=null) => {
+      // col 0-2: label, col 3-5: value, col 6: status badge
+      cell(r,0,label,{ font:fnt(false,10,XL.muted), fill:fill(XL.dark), alignment:aln("left"), border:brd() });
+      merge(r,r,0,2);
+      const vFill = fill(XL.dark);
+      cell(r,3,value??"-",{ font:fnt(false,11,XL.white), fill:vFill, alignment:aln("left",true), border:brd() });
+      merge(r,r,3,5);
+      if(statusVal!==null) {
+        const isOk = statusVal===true;
+        cell(r,6,isOk?"✓  OK":"✗  NOK",{
+          font:fnt(true,10,isOk?XL.ok:XL.nok),
+          fill:fill(isOk?XL.okBg:XL.nokBg),
+          alignment:aln("center"), border:brd(isOk?XL.ok:XL.nok)
+        });
+      } else {
+        cell(r,6,"",{fill:fill(XL.dark), border:brd()});
+      }
+      r++;
+    };
+
+    // Note sub-row
+    const noteRow = (note) => {
+      if(!note) return;
+      cell(r,0,"   not:",{ font:fnt(false,9,XL.muted), fill:fill(XL.dark), alignment:aln("left"), border:brd() });
+      merge(r,r,0,2);
+      cell(r,3,note,{ font:fnt(false,10,XL.muted), fill:fill(XL.dark), alignment:aln("left",true), border:brd() });
+      merge(r,r,3,6);
+      r++;
+    };
+
+    const spacer = () => {
+      for(let c=0;c<7;c++) cell(r,c,"",{fill:fill(XL.dark)});
+      r++;
+    };
+
+    // ── BAŞLIK ───────────────────────────────────────────────────────
+    // Row 0: big title
+    for(let c=0;c<7;c++) cell(r,c,"",{fill:fill(XL.headerBg)});
+    cell(r,0,"SGK · MAKEREADY CHECKLIST",{ font:fnt(true,16,XL.accent), fill:fill(XL.headerBg), alignment:aln("left") });
+    merge(r,r,0,4);
+    cell(r,5,job.date,{ font:fnt(false,11,XL.muted), fill:fill(XL.headerBg), alignment:aln("right") });
+    merge(r,r,5,6);
+    r++;
+    // Thin accent line
+    for(let c=0;c<7;c++) cell(r,c,"",{fill:fill(XL.accent), border:{bottom:{style:"thin",color:{rgb:XL.accent}}}});
+    merge(r,r,0,6); r++;
+    spacer();
+
+    // ── 1. İŞ BİLGİLERİ ─────────────────────────────────────────────
+    sectionRow("1.  İŞ BİLGİLERİ");
+    labelRow("Marka", job.brand);
+    labelRow("Variant", job.variant);
+    labelRow("Job No", job.jobNo);
+    labelRow("Tedarikçi", job.supplier);
+    labelRow("Baskı Tekniği", job.technique);
+    labelRow("Substrate", job.substrate);
+    labelRow("SGK Attendee", job.sgkAttendee);
+    spacer();
+
+    // ── 2. İŞ GEÇMİŞİ ───────────────────────────────────────────────
+    sectionRow("2.  İŞ GEÇMİŞİ");
+    labelRow("Daha önce basıldı mı?",
+      history.hasPrevious===true?"Evet":history.hasPrevious===false?"Hayır":"—",
+      history.hasPrevious);
+    if(history.hasPrevious===true) {
+      labelRow("Referans numune mevcut?",
+        history.refSampleAvailable===true?"Evet":history.refSampleAvailable===false?"Hayır":"—",
+        history.refSampleAvailable);
+      if(history.refSampleAvailable===true) {
+        labelRow("Numune No", history.refSampleNo||"—");
+        labelRow("Numune Tarihi", history.refSampleDate||"—");
+      }
+      labelRow("Majör değişiklik?",
+        history.majorChange===true?"Evet":history.majorChange===false?"Hayır":"—",
+        history.majorChange===true?false:history.majorChange===false?true:null);
+      if(history.majorChange===true) {
+        labelRow("Değişiklik açıklaması", history.majorChangeDesc||"—");
+      }
+      if(history.prevIssues.length > 0) {
+        sectionRow("   Önceki Baskı Sorunları");
+        history.prevIssues.forEach((iss,i) => {
+          labelRow(`${i+1}. Sorun`, iss.note||"—",
+            iss.notified===true?true:iss.notified===false?false:null);
+        });
+      }
+    }
+    spacer();
+
+    // ── 3. RENK REFERANSLARI ─────────────────────────────────────────
+    sectionRow("3.  RENK REFERANSLARI");
+    labelRow("GMG / ICC Profili",
+      colors.gmgProfile===true?("Tanımlı" + (colors.gmgProfileName ? " — "+colors.gmgProfileName : "")):
+      colors.gmgProfile===false?"Tanımsız":"—",
+      colors.gmgProfile);
+
+    if(colors.spotColors.length > 0) {
+      // Spot color table header
+      const hdr = ["Renk Adı","Pantone Kodu","L* a* b*","Tolerans ΔE"];
+      const hCols = [0,2,4,6];
+      const hSpans = [[0,1],[2,3],[4,5],[6,6]];
+      hSpans.forEach(([cs,ce],i) => {
+        cell(r,cs,hdr[i],{ font:fnt(true,10,XL.accent), fill:fill(XL.sectionBg), alignment:aln("center"), border:brd() });
+        if(cs!==ce) merge(r,r,cs,ce);
+      });
+      r++;
+      colors.spotColors.forEach(sc => {
+        const vals = [sc.name||"—", sc.pantone||"—", sc.lab||"—", sc.tolerance||"—"];
+        hSpans.forEach(([cs,ce],i) => {
+          cell(r,cs,vals[i],{ font:fnt(false,11,XL.white), fill:fill(XL.dark), alignment:aln("center"), border:brd() });
+          if(cs!==ce) merge(r,r,cs,ce);
+        });
+        r++;
+      });
+    }
+    spacer();
+
+    // ── 4. TEDARİKÇİ HAZIRLIK ────────────────────────────────────────
+    sectionRow("4.  TEDARİKÇİ HAZIRLIK");
+    labelRow("Substrate teyit edildi", supplier.substrateConfirmed===true?"Evet":supplier.substrateConfirmed===false?"Hayır":"—", supplier.substrateConfirmed);
+    noteRow(supplier.substrateNote);
+    labelRow("Baskı tekniği repro ile uyuşuyor", supplier.techniqueMatch===true?"Evet":supplier.techniqueMatch===false?"Hayır":"—", supplier.techniqueMatch);
+    noteRow(supplier.techniqueNote);
+    labelRow("Proof / referans baskı iletildi", supplier.proofSent===true?"Evet":supplier.proofSent===false?"Hayır":"—", supplier.proofSent);
+    if(supplier.proofSent===true) labelRow("Proof Durumu", supplier.proofStatus||"—");
+    noteRow(supplier.proofSentNote);
+    spacer();
+
+    // ── 5. MÜŞTERİ ONAYLARI ─────────────────────────────────────────
+    sectionRow("5.  MÜŞTERİ ONAYLARI");
+    labelRow("Müşteri proof onayı alındı", client.proofApproved===true?"Evet":client.proofApproved===false?"Hayır":"—", client.proofApproved);
+    noteRow(client.proofApprovedNote);
+    labelRow("Önceki sorunlar müşteriye iletildi", client.prevIssuesNotified===true?"Evet":client.prevIssuesNotified===false?"Hayır":"—", client.prevIssuesNotified);
+    noteRow(client.prevIssuesNotifiedNote);
+    spacer();
+
+    // ── 6. SONUÇ ─────────────────────────────────────────────────────
+    sectionRow("6.  SONUÇ");
+    if(result.notes) labelRow("Notlar / Gözlemler", result.notes);
+
+    // Decision banner
+    const isReady = result.decision==="ready";
+    const isNotReady = result.decision==="notready";
+    const decisionText = isReady ? "✓  BASKIYA HAZIR" : isNotReady ? "✗  HAZIR DEĞİL" : "—  KARAR VERİLMEDİ";
+    const decisionColor = isReady ? XL.ok : isNotReady ? XL.nok : XL.muted;
+    const decisionBg = isReady ? XL.okBg : isNotReady ? XL.nokBg : XL.dark;
+    for(let c=0;c<7;c++) cell(r,c,"",{fill:fill(decisionBg)});
+    cell(r,0,decisionText,{ font:fnt(true,14,decisionColor), fill:fill(decisionBg), alignment:aln("center") });
+    merge(r,r,0,6); r++;
+    spacer();
+
+    // ── ÖZET ─────────────────────────────────────────────────────────
+    sectionRow("KONTROL ÖZETİ");
+    [["✓ OK",okCount,XL.ok,XL.okBg],["✗ NOK",nokCount,XL.nok,XL.nokBg],["Toplam",totalChecks,XL.muted,XL.dark]].forEach(([label,val,clr,bg],i) => {
+      const cs = i*2, ce = cs+1;
+      cell(r,cs,label,{ font:fnt(false,10,clr), fill:fill(bg), alignment:aln("center"), border:brd(clr) });
+      cell(r,ce,val,{ font:fnt(true,14,clr), fill:fill(bg), alignment:aln("center"), border:brd(clr) });
+      if(i<2) { merge(r,r,cs,cs); merge(r,r,ce,ce); }
+    });
+    cell(r,6,"",{fill:fill(XL.dark), border:brd()});
+    r++;
+
+    // ── Finalize ─────────────────────────────────────────────────────
+    ws["!ref"] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:r,c:6}});
+    ws["!merges"] = merges;
+    ws["!cols"] = [
+      {wch:18},{wch:14},{wch:10},  // label cols
+      {wch:22},{wch:14},{wch:10},  // value cols
+      {wch:12},                     // status col
+    ];
+    ws["!rows"] = Array.from({length:r}, (_,i) => ({hpt: i===1?3:i===0?22:18}));
+
+    XLSX.utils.book_append_sheet(wb, ws, "Makeready Checklist");
+    XLSX.writeFile(wb, `Makeready_${job.brand||"Report"}_${job.date.replace(/\./g,"-")}.xlsx`);
+  };
+
+  const resetAll = () => {
+    setJob({date:today(),brand:"",variant:"",jobNo:"",technique:"Flexo",substrate:"",supplier:"",sgkAttendee:"",notes:""});
+    setHistory({hasPrevious:null,refSampleAvailable:null,refSampleNo:"",refSampleDate:"",majorChange:null,majorChangeDesc:"",prevIssues:[]});
+    setColors({gmgProfile:null,gmgProfileName:"",spotColors:[]});
+    setSupplier({substrateConfirmed:null,substrateNote:undefined,techniqueMatch:null,techniqueNote:undefined,proofSent:null,proofSentNote:undefined,proofStatus:"Var — onaylı"});
+    setClient({proofApproved:null,proofApprovedNote:undefined,prevIssuesNotified:null,prevIssuesNotifiedNote:undefined});
+    setResult({decision:null,notes:""});
+  };
+
+  const YesNo = ({value, onChange}) => (
+    <div style={{display:"flex", gap:8, marginTop:6}}>
+      {[["Evet",true],["Hayır",false]].map(([label,val])=>(
+        <button key={label} onClick={()=>onChange(value===val?null:val)}
+          style={{padding:"6px 18px", borderRadius:20, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:600,
+            background: value===val ? (val ? C.ok : C.danger) : C.surface,
+            color: value===val ? (val ? "#000" : "#fff") : C.muted,
+            outline: value===val ? "none" : `1px solid ${C.border}`}}>{label}</button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'DM Mono','Courier New',monospace", padding:"24px 16px"}}>
+      <div style={{maxWidth:760, margin:"0 auto 28px"}}>
+        <div style={{fontSize:11, color:C.muted, letterSpacing:4, marginBottom:4}}>SGK · PRINT PRODUCTION</div>
+        <h1 style={{margin:0, fontSize:22, fontWeight:700, color:C.accent, letterSpacing:1}}>Makeready Checklist</h1>
+        <div style={{fontSize:11, color:C.muted, marginTop:4}}>{today()}</div>
+      </div>
+
+      {/* Özet bar */}
+      <div style={{maxWidth:760, margin:"0 auto 24px", display:"flex", gap:8}}>
+        {[["OK",okCount,C.ok],["NOK",nokCount,C.danger],["Toplam",totalChecks,C.muted]].map(([label,val,color])=>(
+          <div key={label} style={{flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", textAlign:"center"}}>
+            <div style={{fontSize:20, fontWeight:700, color}}>{val}</div>
+            <div style={{fontSize:10, color:C.muted, letterSpacing:2, marginTop:2}}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{maxWidth:760, margin:"0 auto"}}>
+
+        {/* 1. İŞ BİLGİLERİ */}
+        <div style={{background:C.card, borderRadius:12, padding:24, border:`1px solid ${C.border}`, marginBottom:16}}>
+          <Section title="İş Bilgileri">
+            <div style={{display:"flex", gap:12, flexWrap:"wrap"}}>
+              <Field label="TARİH" half><Inp value={job.date} onChange={j("date")}/></Field>
+              <Field label="TEDARİKÇİ" half><Inp value={job.supplier} onChange={j("supplier")} placeholder="PROPAK"/></Field>
+            </div>
+            <div style={{display:"flex", gap:12, flexWrap:"wrap"}}>
+              <Field label="MARKA" third><Inp value={job.brand} onChange={j("brand")} placeholder="CHİO"/></Field>
+              <Field label="VARİANT" third><Inp value={job.variant} onChange={j("variant")} placeholder="FOLIE ICP120G..."/></Field>
+              <Field label="JOB NO" third><Inp value={job.jobNo} onChange={j("jobNo")} placeholder="SGK-2026-XXX"/></Field>
+            </div>
+            <div style={{display:"flex", gap:12, flexWrap:"wrap"}}>
+              <Field label="BASKI TEKNİĞİ" half><Sel value={job.technique} onChange={j("technique")} options={PRINT_TECHNIQUES}/></Field>
+              <Field label="SUBSTRATE" half><Inp value={job.substrate} onChange={j("substrate")} placeholder="BOPP 20µm"/></Field>
+            </div>
+            <Field label="SGK ATTENDEE"><Inp value={job.sgkAttendee} onChange={j("sgkAttendee")} placeholder="Adın soyadın"/></Field>
+          </Section>
+        </div>
+
+        {/* 2. İŞ GEÇMİŞİ */}
+        <div style={{background:C.card, borderRadius:12, padding:24, border:`1px solid ${C.border}`, marginBottom:16}}>
+          <Section title="İş Geçmişi">
+
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:12, color:C.muted, marginBottom:4}}>Bu iş daha önce basıldı mı?</div>
+              <YesNo value={history.hasPrevious} onChange={h("hasPrevious")}/>
+            </div>
+
+            {history.hasPrevious === true && (
+              <>
+                <div style={{background:C.surface, borderRadius:10, padding:16, marginBottom:16, border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:12, color:C.muted, marginBottom:10}}>Referans numune mevcut mu?</div>
+                  <YesNo value={history.refSampleAvailable} onChange={h("refSampleAvailable")}/>
+                  {history.refSampleAvailable === true && (
+                    <div style={{display:"flex", gap:10, marginTop:12, flexWrap:"wrap"}}>
+                      <Field label="NUMUNE NO" half><Inp value={history.refSampleNo} onChange={h("refSampleNo")} placeholder="REF-001"/></Field>
+                      <Field label="NUMUNE TARİHİ" half><Inp value={history.refSampleDate} onChange={h("refSampleDate")} placeholder="01.01.2025"/></Field>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12, color:C.muted, marginBottom:4}}>Majör değişiklik yapıldı mı?</div>
+                  <YesNo value={history.majorChange} onChange={h("majorChange")}/>
+                  {history.majorChange === true && (
+                    <div style={{marginTop:10}}>
+                      <Field label="DEĞİŞİKLİK AÇIKLAMASI">
+                        <Txa value={history.majorChangeDesc} onChange={h("majorChangeDesc")} placeholder="Yapılan değişikliği açıkla..." rows={2}/>
+                      </Field>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div style={{fontSize:12, color:C.muted, marginBottom:8}}>Önceki baskıda tespit edilen sorunlar</div>
+                  {history.prevIssues.map((iss,i)=>(
+                    <PrevIssueRow key={i} issue={iss} onChange={v=>updatePrevIssue(i,v)} onRemove={()=>removePrevIssue(i)}/>
+                  ))}
+                  <button onClick={addPrevIssue}
+                    style={{background:C.accent+"22", color:C.accent, border:`1px dashed ${C.accent}`, borderRadius:8, padding:"7px 16px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit"}}>
+                    + Sorun Ekle
+                  </button>
+                </div>
+              </>
+            )}
+          </Section>
+        </div>
+
+        {/* 3. RENK REFERANSLARI */}
+        <div style={{background:C.card, borderRadius:12, padding:24, border:`1px solid ${C.border}`, marginBottom:16}}>
+          <Section title="Renk Referansları">
+
+            <div style={{background:C.surface, borderRadius:10, padding:14, marginBottom:16, border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12, color:C.muted, marginBottom:6}}>GMG / ICC Profili tanımlı mı?</div>
+              <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
+                <YesNo value={colors.gmgProfile} onChange={c("gmgProfile")}/>
+                {colors.gmgProfile === true && (
+                  <div style={{marginTop:6, width:"100%"}}>
+                    <Field label="PROFİL ADI">
+                      <Inp value={colors.gmgProfileName} onChange={c("gmgProfileName")} placeholder="Profile adı / versiyonu"/>
+                    </Field>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div style={{fontSize:12, color:C.muted, marginBottom:10}}>Spot renkler</div>
+              {colors.spotColors.length > 0 && (
+                <div style={{display:"flex", gap:6, marginBottom:8, paddingLeft:36}}>
+                  {["Renk adı","Pantone kodu","L* a* b*","Tolerans ΔE"].map(h=>(
+                    <div key={h} style={{fontSize:10, color:C.muted, letterSpacing:1, width: h==="Renk adı"?110:h==="Pantone kodu"?120:h==="L* a* b*"?110:90}}>{h.toUpperCase()}</div>
+                  ))}
+                </div>
+              )}
+              {colors.spotColors.map((sc,i)=>(
+                <SpotColorRow key={i} color={sc} onChange={v=>updateSpot(i,v)} onRemove={()=>removeSpot(i)}/>
+              ))}
+              <button onClick={addSpot}
+                style={{background:C.accent+"22", color:C.accent, border:`1px dashed ${C.accent}`, borderRadius:8, padding:"7px 16px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit"}}>
+                + Spot Renk Ekle
+              </button>
+            </div>
+          </Section>
+        </div>
+
+        {/* 4. TEDARİKÇİ HAZIRLIK */}
+        <div style={{background:C.card, borderRadius:12, padding:24, border:`1px solid ${C.border}`, marginBottom:16}}>
+          <Section title="Tedarikçi Hazırlık">
+            <TriCheck label="Substrate teyit edildi"
+              value={supplier.substrateConfirmed} onChange={v=>su("substrateConfirmed",v)}
+              note={supplier.substrateNote} onNoteChange={v=>su("substrateNote",v)}/>
+            <TriCheck label="Baskı tekniği repro ile uyuşuyor"
+              value={supplier.techniqueMatch} onChange={v=>su("techniqueMatch",v)}
+              note={supplier.techniqueNote} onNoteChange={v=>su("techniqueNote",v)}/>
+            <TriCheck label="Proof / referans baskı tedarikçiye iletildi"
+              value={supplier.proofSent} onChange={v=>su("proofSent",v)}
+              note={supplier.proofSentNote} onNoteChange={v=>su("proofSentNote",v)}/>
+            {supplier.proofSent === true && (
+              <div style={{marginTop:8, marginBottom:8}}>
+                <Field label="PROOF DURUMU">
+                  <Sel value={supplier.proofStatus} onChange={v=>su("proofStatus",v)} options={PROOF_STATUS}/>
+                </Field>
+              </div>
+            )}
+          </Section>
+        </div>
+
+        {/* 5. MÜŞTERİ ONAYLARI */}
+        <div style={{background:C.card, borderRadius:12, padding:24, border:`1px solid ${C.border}`, marginBottom:16}}>
+          <Section title="Müşteri Onayları">
+            <TriCheck label="Müşteri proof onayı alındı"
+              value={client.proofApproved} onChange={v=>cl("proofApproved",v)}
+              note={client.proofApprovedNote} onNoteChange={v=>cl("proofApprovedNote",v)}/>
+            <TriCheck label="Önceki baskı sorunları müşteriye iletildi"
+              value={client.prevIssuesNotified} onChange={v=>cl("prevIssuesNotified",v)}
+              note={client.prevIssuesNotifiedNote} onNoteChange={v=>cl("prevIssuesNotifiedNote",v)}/>
+          </Section>
+        </div>
+
+        {/* 6. SONUÇ */}
+        <div style={{background:C.card, borderRadius:12, padding:24, border:`1px solid ${C.border}`, marginBottom:16}}>
+          <Section title="Genel Notlar & Sonuç">
+            <Field label="NOTLAR / GÖZLEMLER">
+              <Txa value={result.notes} onChange={v=>setResult(p=>({...p,notes:v}))} placeholder="Baskı öncesi dikkat edilmesi gereken hususlar..." rows={4}/>
+            </Field>
+
+            <div style={{fontSize:12, color:C.muted, marginBottom:10}}>KARAR</div>
+            <div style={{display:"flex", gap:10, marginBottom:20}}>
+              <button onClick={()=>setResult(p=>({...p, decision: p.decision==="ready"?null:"ready"}))}
+                style={{flex:1, padding:"14px 0", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:14, fontWeight:700,
+                  background: result.decision==="ready" ? C.ok : C.surface,
+                  color: result.decision==="ready" ? "#000" : C.muted,
+                  outline: result.decision==="ready" ? "none" : `1px solid ${C.border}`}}>
+                ✓ Baskıya Hazır
+              </button>
+              <button onClick={()=>setResult(p=>({...p, decision: p.decision==="notready"?null:"notready"}))}
+                style={{flex:1, padding:"14px 0", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:14, fontWeight:700,
+                  background: result.decision==="notready" ? C.danger : C.surface,
+                  color: result.decision==="notready" ? "#fff" : C.muted,
+                  outline: result.decision==="notready" ? "none" : `1px solid ${C.border}`}}>
+                ✗ Hazır Değil
+              </button>
+            </div>
+
+            <button onClick={generateExcel}
+              style={{width:"100%", background:C.accent, color:"#000", border:"none", borderRadius:8, padding:"14px 0", fontWeight:700, fontSize:15, cursor:"pointer", fontFamily:"inherit", letterSpacing:1, marginBottom:10}}>
+              ↓ Excel İndir (.xlsx)
+            </button>
+            <button onClick={resetAll}
+              style={{width:"100%", background:"transparent", color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"11px 0", fontWeight:600, fontSize:13, cursor:"pointer", fontFamily:"inherit"}}>
+              + Yeni Checklist
+            </button>
+          </Section>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

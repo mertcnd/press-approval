@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SGK · Press Approval Report</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f12; color: #e8e8f0; font-family: 'DM Mono', 'Courier New', monospace; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { opacity: 0.4; }
+  input::placeholder, textarea::placeholder { color: #6b6b80; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #16161c; }
+  ::-webkit-scrollbar-thumb { background: #2a2a36; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback } = React;
+
+const C = {
+  bg:"#0f0f12", surface:"#16161c", card:"#1c1c24", border:"#2a2a36",
+  accent:"#e8c84a", accentD:"#b89a2a", text:"#e8e8f0", muted:"#6b6b80",
+  ok:"#3ecf8e", warn:"#e87d4a",
+  pull:["#1e2a3a","#1e2e2a","#2a1e2e","#2a2a1e","#1e2a2a","#2e1e2a"],
+};
+
+const inp = {
+  background:C.surface, border:`1px solid ${C.border}`, borderRadius:6,
+  color:C.text, padding:"8px 12px", width:"100%", fontSize:13,
+  outline:"none", fontFamily:"inherit",
+};
+
+const today = () => { const d=new Date(); return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}`; };
+const nowTime = () => { const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+
+const DOT_ROWS = [0,3,"5 lam",10,20,25,30,40,45,"50 lam",60,70,75,80,"lamination",100];
+const CMYK_COLORS = [
+  { id:"cyan",    label:"Cyan",    hex:"#0432FF", locked:true },
+  { id:"magenta", label:"Magenta", hex:"#FF33CC", locked:true },
+  { id:"yellow",  label:"Yellow",  hex:"#FFE000", locked:true },
+  { id:"black",   label:"Black",   hex:"#aaaaaa", locked:true },
+];
+const SPECIAL_COLOR_PRESETS = ["#FF2020","#7030A0","#FF6600","#00B050","#00B0F0","#FFC000","#C00000","#002060"];
+let _cid = 10;
+const newColorId = () => `sc_${_cid++}`;
+
+const defaultColors = () => [
+  ...CMYK_COLORS,
+  { id:"chioRed", label:"Chio RED", hex:"#FF2020", locked:false },
+  { id:"pRed",    label:"P.RED",    hex:"#7030A0", locked:false },
+];
+
+function Section({ title, children }) {
+  return (
+    <div style={{marginBottom:28}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:3,color:C.accent,textTransform:"uppercase",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{flex:1,height:1,background:`linear-gradient(90deg,${C.accent}55,transparent)`}}/>
+        {title}
+        <span style={{flex:1,height:1,background:`linear-gradient(270deg,${C.accent}55,transparent)`}}/>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, children, half }) {
+  return (
+    <div style={{marginBottom:12,width:half?"calc(50% - 6px)":"100%"}}>
+      <label style={{display:"block",fontSize:11,color:C.muted,marginBottom:5,letterSpacing:1}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Inp({ value, onChange, placeholder }) {
+  return <input type="text" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={inp}/>;
+}
+function Txa({ value, onChange, placeholder, rows=3 }) {
+  return <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{...inp,resize:"vertical"}}/>;
+}
+
+function PullCard({ index, pull, onChange, isActive, isApproved, onApprove, onRevise, showActions }) {
+  const update = (k,v) => onChange({...pull,[k]:v});
+  const updateAdj = (i,v) => { const a=[...(pull.adjustments||["","",""])]; a[i]=v; onChange({...pull,adjustments:a}); };
+  const adjs = pull.adjustments||["","",""];
+  return (
+    <div style={{background:C.pull[index%C.pull.length],border:`1px solid ${isApproved?C.ok:C.border}`,borderRadius:10,padding:18,marginBottom:14,opacity:isActive?1:0.55,transition:"all .3s"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <span style={{fontSize:13,fontWeight:700,color:C.text}}>Pull #{index+1}</span>
+        {isApproved && <span style={{fontSize:11,background:C.ok+"33",color:C.ok,padding:"3px 10px",borderRadius:20,fontWeight:600}}>✓ Onaylandı</span>}
+      </div>
+      <div style={{display:"flex",gap:12,marginBottom:12}}>
+        <Field label="SAAT" half><Inp value={pull.time||""} onChange={v=>update("time",v)} placeholder="11:00"/></Field>
+      </div>
+      <Field label="YORUMLAR"><Txa value={pull.comments||""} onChange={v=>update("comments",v)} placeholder="Baskı değerlendirme yorumu..."/></Field>
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginTop:8}}>
+        <div style={{fontSize:11,color:C.muted,marginBottom:8,letterSpacing:1}}>GEREKLİ AYARLAMALAR</div>
+        {[0,1,2].map(i=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontSize:11,color:C.muted,minWidth:20}}>{i+1}.</span>
+            <input type="text" value={adjs[i]||""} onChange={e=>updateAdj(i,e.target.value)}
+              placeholder={i===0?"İlk ayarlama...":i===1?"İkinci ayarlama...":"Üçüncü ayarlama..."}
+              style={{...inp,fontSize:12}} disabled={!isActive}/>
+          </div>
+        ))}
+      </div>
+      {showActions && isActive && !isApproved && (
+        <div style={{display:"flex",gap:10,marginTop:14}}>
+          <button onClick={onApprove} style={{flex:1,background:C.ok,color:"#000",border:"none",borderRadius:7,padding:"10px 0",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✓ Bu Pull'u Onayla</button>
+          <button onClick={onRevise} style={{flex:1,background:C.warn+"22",color:C.warn,border:`1px solid ${C.warn}`,borderRadius:7,padding:"10px 0",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↩ Revize Ver</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DotGainTable({ colors, onColorsChange, dotgain, setDotgain, density, setDensity, lab, setLab }) {
+  const [editingId, setEditingId] = useState(null);
+  const updateDot = (id,ri,val) => setDotgain(prev=>{ const n={...prev}; const a=[...(n[id]||Array(16).fill(""))]; a[ri]=val; n[id]=a; return n; });
+  const updateDensity = (id,val) => setDensity(prev=>({...prev,[id]:val}));
+  const updateLab = (id,ch,val) => setLab(prev=>({...prev,[id]:{...(prev[id]||{}),[ch]:val}}));
+  const addColor = () => { const id=newColorId(); const pi=(colors.filter(c=>!c.locked).length)%SPECIAL_COLOR_PRESETS.length; onColorsChange([...colors,{id,label:"Özel Renk",hex:SPECIAL_COLOR_PRESETS[pi],locked:false}]); setEditingId(id); };
+  const removeColor = (id) => { onColorsChange(colors.filter(c=>c.id!==id)); setDotgain(p=>{const n={...p};delete n[id];return n;}); setDensity(p=>{const n={...p};delete n[id];return n;}); setLab(p=>{const n={...p};delete n[id];return n;}); };
+  const updateColorLabel = (id,label) => onColorsChange(colors.map(c=>c.id===id?{...c,label}:c));
+  const updateColorHex = (id,hex) => onColorsChange(colors.map(c=>c.id===id?{...c,hex}:c));
+  const cs = { border:`1px solid ${C.border}`, padding:"2px 4px", textAlign:"center" };
+  const it = { background:"transparent", border:"none", color:C.text, width:"100%", textAlign:"center", fontSize:12, outline:"none", fontFamily:"inherit" };
+  return (
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16,alignItems:"center"}}>
+        {colors.filter(c=>!c.locked).map(c=>(
+          <div key={c.id} style={{display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${editingId===c.id?C.accent:C.border}`,borderRadius:8,padding:"5px 8px",transition:"border .2s"}}>
+            <input type="color" value={c.hex} onChange={e=>updateColorHex(c.id,e.target.value)} style={{width:22,height:22,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
+            <input
+              value={c.label}
+              onChange={e=>updateColorLabel(c.id,e.target.value)}
+              onFocus={()=>setEditingId(c.id)}
+              onKeyDown={e=>e.key==="Enter"&&setEditingId(null)}
+              style={{...it,width:80,background:"transparent",padding:"2px 4px",textAlign:"left",color:C.text,fontSize:12,borderBottom:`1px solid ${editingId===c.id?C.accent:"transparent"}`,transition:"border .2s"}}
+            />
+            {editingId===c.id && (
+              <button onClick={()=>setEditingId(null)} style={{background:C.accent,border:"none",color:"#000",cursor:"pointer",padding:"1px 6px",fontSize:11,fontWeight:700,borderRadius:4,fontFamily:"inherit"}}>✓</button>
+            )}
+            <button onClick={()=>removeColor(c.id)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",padding:"0 2px",fontSize:14,lineHeight:1}}>×</button>
+          </div>
+        ))}
+        <button onClick={addColor} style={{background:C.accent+"22",color:C.accent,border:`1px dashed ${C.accent}`,borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Özel Renk Ekle</button>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+          <thead>
+            <tr>
+              <th style={{...cs,background:"#333",color:C.accent,width:70}}>Linear</th>
+              {colors.map(c=>(
+                <th key={c.id} style={{...cs,background:c.hex+"44",color:C.text,minWidth:76,position:"relative"}}>
+                  {!c.locked
+                    ? <input
+                        value={c.label}
+                        onChange={e=>updateColorLabel(c.id,e.target.value)}
+                        style={{...it,background:"transparent",padding:"2px 4px",textAlign:"center",fontWeight:700,fontSize:12,width:"100%"}}
+                        title="İsmi düzenle"
+                      />
+                    : c.label}
+                  <div style={{width:"100%",height:3,background:c.hex,marginTop:3,borderRadius:2}}/>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {DOT_ROWS.map((linear,ri)=>(
+              <tr key={ri}>
+                <td style={{...cs,background:"#575757",color:"#fff",textAlign:"center",fontWeight:600}}>{linear}</td>
+                {colors.map(c=>(
+                  <td key={c.id} style={{...cs,background:C.card}}>
+                    <input type="number" step="0.01" value={(dotgain[c.id]||[])[ri]||""} onChange={e=>updateDot(c.id,ri,e.target.value)} style={it} placeholder="—"/>
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr>
+              <td style={{...cs,background:"#575757",color:"#fff",fontWeight:700}}>Density</td>
+              {colors.map(c=>(
+                <td key={c.id} style={{...cs,background:"#575757"}}>
+                  <input type="number" step="0.01" value={density[c.id]||""} onChange={e=>updateDensity(c.id,e.target.value)} style={{...it,color:"#fff"}} placeholder="—"/>
+                </td>
+              ))}
+            </tr>
+            {["L","a","b"].map(ch=>(
+              <tr key={ch}>
+                <td style={{...cs,background:"#575757",color:"#fff",fontWeight:700}}>*{ch}</td>
+                {colors.map(c=>(
+                  <td key={c.id} style={{...cs,background:"#575757"}}>
+                    <input type="number" step="0.01" value={(lab[c.id]||{})[ch.toLowerCase()]||""} onChange={e=>updateLab(c.id,ch.toLowerCase(),e.target.value)} style={{...it,color:"#fff"}} placeholder="—"/>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [step, setStep] = useState(0);
+  const [overview, setOv] = useState({
+    date:today(), time:nowTime(),
+    printer:"", printerAddress:"",
+    printerAttendee:"", sgkAttendee:"", clientAttendee:"",
+    brand:"", variant:"", clientProductRef:"", sgkJobNumber:"",
+    notes:"", jobPreview:"",
+  });
+  const ov = k => v => setOv(prev=>({...prev,[k]:v}));
+  const [pulls, setPulls] = useState([{time:"",comments:"",adjustments:["","",""]}]);
+  const [activePull, setActivePull] = useState(0);
+  const [approvedPull, setApprovedPull] = useState(null);
+  const [approvalTime, setApprovalTime] = useState("");
+  const [approvalComments, setApprovalComments] = useState("");
+  const [printSampleComments, setPsc] = useState("");
+  const [issuesAnalysis, setIssues] = useState("");
+  const [improvements, setImprovements] = useState("");
+  const [colors, setColors] = useState(defaultColors());
+  const [dotgain, setDotgain] = useState({});
+  const [density, setDensity] = useState({});
+  const [lab, setLab] = useState({});
+
+  const updatePull = useCallback((i,val)=>setPulls(prev=>{const n=[...prev];n[i]=val;return n;}),[]);
+  const handleApprove = i => { setApprovedPull(i); setApprovalTime(nowTime()); };
+  const handleRevise = i => {
+    if(i<5){ if(pulls.length<=i+1) setPulls(prev=>[...prev,{time:"",comments:"",adjustments:["","",""]}]); setActivePull(i+1); }
+  };
+
+  const generateExcel = async () => {
+    const payload = {
+      date: overview.date, time: overview.time,
+      printer: overview.printer, printerAddress: overview.printerAddress,
+      printerAttendee: overview.printerAttendee, sgkAttendee: overview.sgkAttendee,
+      clientAttendee: overview.clientAttendee, brand: overview.brand,
+      variant: overview.variant, clientProductRef: overview.clientProductRef,
+      sgkJobNumber: overview.sgkJobNumber, notes: overview.notes, jobPreview: overview.jobPreview,
+      pulls, approvedPull, approvalTime, approvalComments,
+      printSampleComments, issuesAnalysis, improvements,
+      colors, dotgain, density, lab,
+    };
+    try {
+      const res = await fetch("/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Press_Approval_${overview.brand||"Report"}_${overview.date.replace(/\./g,"-")}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+    } catch(e) {}
+    // Fallback: SheetJS (basic format)
+    const wb = XLSX.utils.book_new();
+    const mks = (name,rows) => { const ws=XLSX.utils.aoa_to_sheet(rows); XLSX.utils.book_append_sheet(wb,ws,name); };
+    mks("Overview",[
+      ["","Press Attendance Report"],[],[],[],[],["Overview"],[],
+      ["Date of Press Attendance",overview.date],["Time of Press Attendance",overview.time],[],
+      ["Printer",overview.printer,"","","","Printer Attendee",overview.printerAttendee],
+      ["Printer Site","","","","","SGK Attendee",overview.sgkAttendee],
+      ["Printer Address",overview.printerAddress,"","","","Client Attendee",overview.clientAttendee],
+      [],[],[],[],["Press Pass Details"],[],
+      ["Brand",overview.brand,"","","","Client Product Ref.",overview.clientProductRef],
+      ["Variant",overview.variant,"","","","SGK Job Number",overview.sgkJobNumber],
+      [],[],["Press Pass Overview and Requirements"],[],
+      ["Notes/Comments",overview.notes],[],[],[],[],[],[],[],[],
+      ["Job Preview",overview.jobPreview],
+    ]);
+    const op=[["","Press Attendance Report"],[],[],[],[],["On-Press Adjustment"],[]];
+    pulls.forEach((pull,i)=>{
+      const adjs=pull.adjustments||["","",""];
+      op.push([`Pull Number ${i+1}`],["Time",pull.time],["Comments",pull.comments],[],
+        ["Required Adjustment 1",adjs[0]],["Required Adjustment 2",adjs[1]],["Required Adjustment 3",adjs[2]],[]);
+    });
+    op.push([],["Approval"],[],["Approved on pull",approvedPull!==null?approvedPull+1:""],["Time of approval",approvalTime],["Comments",approvalComments]);
+    mks("On Press",op);
+    const ps=[
+      ["","Press Attendance Report"],[],[],[],[],["Print Sample Analysis"],[],
+      ["Comments",printSampleComments],[],[],[],[],[],[],[],[],[],
+      ["Issues Analysis"],[],["Comments",issuesAnalysis],[],[],[],[],[],[],[],[],
+      ["Improvements"],[],["Comments",improvements],[],[],[],[],[],[],
+      ["Graphs"],[],["","","Printed Data dotgain"],
+      ["","Linear",...colors.map(c=>c.label)],
+    ];
+    DOT_ROWS.forEach((linear,ri)=>ps.push(["",linear,...colors.map(c=>(dotgain[c.id]||[])[ri]||"")]));
+    ps.push(["","Density ",...colors.map(c=>density[c.id]||"")]);
+    ps.push(["","L",...colors.map(c=>(lab[c.id]||{}).L||"")]);
+    ps.push(["","*a",...colors.map(c=>(lab[c.id]||{}).a||"")]);
+    ps.push(["","*b",...colors.map(c=>(lab[c.id]||{}).b||"")]);
+    mks("Print Sample Analysis",ps);
+    XLSX.writeFile(wb,`Press_Approval_${overview.brand||"Report"}_${overview.date.replace(/\./g,"-")}.xlsx`);
+  };
+
+  const resetAll = () => {
+    setStep(0); setPulls([{time:"",comments:"",adjustments:["","",""]}]); setActivePull(0);
+    setApprovedPull(null); setApprovalTime(""); setApprovalComments("");
+    setPsc(""); setIssues(""); setImprovements("");
+    setDotgain({}); setDensity({}); setLab({});
+    setColors(defaultColors());
+    setOv({date:today(),time:nowTime(),printer:"",printerAddress:"",printerAttendee:"",sgkAttendee:"",clientAttendee:"",brand:"",variant:"",clientProductRef:"",sgkJobNumber:"",notes:"",jobPreview:""});
+  };
+
+  const STEPS = ["Genel Bilgiler","Baskı Süreci","Analiz","Tamamla"];
+  const btn = (label,onClick,style={}) => (
+    <button onClick={onClick} style={{border:"none",borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",width:"100%",...style}}>{label}</button>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace",padding:"24px 16px"}}>
+      <div style={{maxWidth:760,margin:"0 auto 28px"}}>
+        <div style={{fontSize:11,color:C.muted,letterSpacing:4,marginBottom:4}}>SGK · PRINT PRODUCTION</div>
+        <h1 style={{margin:0,fontSize:22,fontWeight:700,color:C.accent,letterSpacing:1}}>Press Approval Report</h1>
+        <div style={{fontSize:11,color:C.muted,marginTop:4}}>{today()}</div>
+      </div>
+
+      <div style={{maxWidth:760,margin:"0 auto 28px",display:"flex",gap:6}}>
+        {STEPS.map((s,i)=>(
+          <div key={i} onClick={()=>i<step+1&&setStep(i)} style={{flex:1,padding:"8px 4px",borderRadius:7,textAlign:"center",fontSize:11,fontWeight:600,letterSpacing:1,cursor:i<=step?"pointer":"default",background:i===step?C.accent:i<step?C.accentD+"55":C.surface,color:i===step?"#000":i<step?C.accent:C.muted,border:`1px solid ${i<=step?C.accent:C.border}`,transition:"all .2s"}}>
+            {i+1}. {s}
+          </div>
+        ))}
+      </div>
+
+      <div style={{maxWidth:760,margin:"0 auto"}}>
+
+        {step===0&&(
+          <div style={{background:C.card,borderRadius:12,padding:24,border:`1px solid ${C.border}`}}>
+            <Section title="Tarih & Saat">
+              <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                <Field label="TARİH" half><Inp value={overview.date} onChange={ov("date")}/></Field>
+                <Field label="SAAT" half><Inp value={overview.time} onChange={ov("time")}/></Field>
+              </div>
+            </Section>
+            <Section title="Tedarikçi Bilgileri">
+              <Field label="PRİNTER (Tedarikçi)"><Inp value={overview.printer} onChange={ov("printer")} placeholder="PROPAK"/></Field>
+              <Field label="ADRES"><Inp value={overview.printerAddress} onChange={ov("printerAddress")} placeholder="DUZCE"/></Field>
+              <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                <Field label="PRINTER ATTENDEE" half><Inp value={overview.printerAttendee} onChange={ov("printerAttendee")} placeholder="Tedarikçi temsilcisi"/></Field>
+                <Field label="SGK ATTENDEE" half><Inp value={overview.sgkAttendee} onChange={ov("sgkAttendee")} placeholder="Adın / soyadın"/></Field>
+              </div>
+              <Field label="CLIENT ATTENDEE (opsiyonel)"><Inp value={overview.clientAttendee} onChange={ov("clientAttendee")} placeholder="Müşteri temsilcisi"/></Field>
+            </Section>
+            <Section title="Ürün Bilgileri">
+              <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                <Field label="MARKA" half><Inp value={overview.brand} onChange={ov("brand")} placeholder="CHİO"/></Field>
+                <Field label="CLIENT PRODUCT REF." half><Inp value={overview.clientProductRef} onChange={ov("clientProductRef")}/></Field>
+              </div>
+              <Field label="VARİANT"><Inp value={overview.variant} onChange={ov("variant")} placeholder="FOLIE ICP120G_2026-Intersnack..."/></Field>
+              <Field label="SGK JOB NUMBER"><Inp value={overview.sgkJobNumber} onChange={ov("sgkJobNumber")} placeholder="-"/></Field>
+            </Section>
+            <Section title="Notlar">
+              <Field label="NOTES / COMMENTS"><Txa value={overview.notes} onChange={ov("notes")} placeholder="Pantone kodları baskıda dikkate alındı..." rows={3}/></Field>
+              <Field label="JOB PREVIEW"><Txa value={overview.jobPreview} onChange={ov("jobPreview")} placeholder="Tüm CMYK, FOP hizalaması önemli..." rows={3}/></Field>
+            </Section>
+            {btn("Baskı Sürecine Geç →",()=>setStep(1),{background:C.accent,color:"#000"})}
+          </div>
+        )}
+
+        {step===1&&(
+          <div style={{background:C.card,borderRadius:12,padding:24,border:`1px solid ${C.border}`}}>
+            <Section title="On-Press Adjustment">
+              {pulls.map((pull,i)=>(
+                <PullCard key={i} index={i} pull={pull} onChange={v=>updatePull(i,v)}
+                  isActive={i===activePull} isApproved={i===approvedPull}
+                  showActions={approvedPull===null}
+                  onApprove={()=>handleApprove(i)} onRevise={()=>handleRevise(i)}/>
+              ))}
+            </Section>
+            {approvedPull!==null&&(
+              <Section title="Final Onay">
+                <div style={{background:C.ok+"15",border:`1px solid ${C.ok}`,borderRadius:10,padding:18,marginBottom:16}}>
+                  <div style={{color:C.ok,fontWeight:700,marginBottom:12}}>✓ Pull #{approvedPull+1} onaylandı</div>
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                    <Field label="ONAY SAATİ" half><Inp value={approvalTime} onChange={setApprovalTime}/></Field>
+                  </div>
+                  <Field label="ONAY YORUMU"><Txa value={approvalComments} onChange={setApprovalComments} placeholder="Baskıda herhangi bir sorun bulunmadı..."/></Field>
+                </div>
+              </Section>
+            )}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setStep(0)} style={{flex:1,background:C.surface,color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"12px 0",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>← Geri</button>
+              <button onClick={()=>setStep(2)} style={{flex:2,background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Analize Geç →</button>
+            </div>
+          </div>
+        )}
+
+        {step===2&&(
+          <div style={{background:C.card,borderRadius:12,padding:24,border:`1px solid ${C.border}`}}>
+            <Section title="Print Sample Analysis">
+              <Field label="GENEL YORUMLAR"><Txa value={printSampleComments} onChange={setPsc} placeholder="Baskı numunesi genel değerlendirmesi..." rows={4}/></Field>
+            </Section>
+            <Section title="Issues Analysis">
+              <Field label="SORUNLAR"><Txa value={issuesAnalysis} onChange={setIssues} placeholder="Tespit edilen sorunlar..." rows={4}/></Field>
+            </Section>
+            <Section title="Improvements">
+              <Field label="İYİLEŞTİRME ÖNERİLERİ"><Txa value={improvements} onChange={setImprovements} placeholder="Gelecek baskılar için öneriler..." rows={3}/></Field>
+            </Section>
+            <Section title="Dot Gain Tablosu">
+              <DotGainTable colors={colors} onColorsChange={setColors} dotgain={dotgain} setDotgain={setDotgain} density={density} setDensity={setDensity} lab={lab} setLab={setLab}/>
+            </Section>
+            <div style={{display:"flex",gap:10,marginTop:8}}>
+              <button onClick={()=>setStep(1)} style={{flex:1,background:C.surface,color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"12px 0",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>← Geri</button>
+              <button onClick={()=>setStep(3)} style={{flex:2,background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Tamamla →</button>
+            </div>
+          </div>
+        )}
+
+        {step===3&&(
+          <div style={{background:C.card,borderRadius:12,padding:32,border:`1px solid ${C.border}`,textAlign:"center"}}>
+            <div style={{fontSize:48,marginBottom:16}}>✓</div>
+            <div style={{fontSize:20,fontWeight:700,color:C.accent,marginBottom:8}}>Rapor Hazır</div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:28}}>
+              {overview.brand&&<><span style={{color:C.text}}>{overview.brand}</span> · </>}
+              {overview.variant&&<span style={{color:C.text,fontSize:12}}>{overview.variant}</span>}
+              <div style={{marginTop:6}}>{overview.date}</div>
+            </div>
+            <div style={{background:C.surface,borderRadius:10,padding:18,marginBottom:24,textAlign:"left"}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:10,letterSpacing:2}}>ÖZET</div>
+              {[["Tedarikçi",overview.printer||"—"],["Pull Sayısı",pulls.length],["Onay",approvedPull!==null?`Pull #${approvedPull+1}`:"—"],["SGK Attendee",overview.sgkAttendee||"—"]].map(([k,v])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <span style={{color:C.muted,fontSize:12}}>{k}</span>
+                  <span style={{fontSize:12,color:k==="Onay"?C.ok:C.text}}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={generateExcel} style={{width:"100%",background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"15px 0",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit",letterSpacing:1,marginBottom:12}}>↓ Excel İndir (.xlsx)</button>
+            <button onClick={resetAll} style={{width:"100%",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 0",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>+ Yeni Rapor</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
